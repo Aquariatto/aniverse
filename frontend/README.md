@@ -1,0 +1,557 @@
+# AniVerse —— 长期记忆驱动的多模态角色陪伴与叙事交互系统
+
+> `A Long-Term-Memory-Driven Multimodal Companion & Narrative Interaction System`
+
+**作者**：申锦豪　|　**课程**：智能系统开发技术基础与应用　|　**版本**：v1.0（2026-11）
+
+> 本项目为课程作业，仅供课程学习、演示与教学交流参考。角色、剧情、对白与 AI 生成图像均为虚构内容；AI 输出可能存在偏差，不作为事实依据；第三方数据与生成图像版权归各自权利人所有，请勿用于商业用途。
+
+前端 Vue 3 + TypeScript，后端零依赖 Node，AI 能力全部对接真实服务（DeepSeek / Cloudflare Workers AI / AniList / 生成式图像服务）。
+
+`Vue 3.5` · `TypeScript` · `Vite 6` · `Pinia` · `three.js 0.171` · `ECharts` · `Node 20` · `DeepSeek` · `Cloudflare Workers AI` · `AniList GraphQL` · `Playwright`
+
+---
+
+## 一、系统概述
+
+**AniVerse** 是一个面向二次元角色陪伴场景的交互系统。它把「对话」「叙事推演」「视觉小说」三种交互模式建立在**同一套长期记忆与关系状态**之上，并向下接入了番剧内容发现、生成式视觉内容生产、日程提醒等外部能力。
+
+系统设计目标不是"做一个聊天界面"，而是解决角色陪伴类应用的三类固有问题：
+
+| 问题 | 本系统的解法 |
+|---|---|
+| **角色无记忆**：多轮之后人设塌陷、重复提问 | 长期记忆子系统：事实/偏好/事件抽取 → 向量化入库 → 检索增强生成（RAG）注入上下文 |
+| **表现无差异**：永远一张笑脸、永远一个场景 | 情绪状态调度 + 场景语义定位：10 情绪 × 5 姿势立绘、25 场景语义切换、融合 CG 演出 |
+| **内容无关联**：对话、剧情、番剧各玩各的 | 统一状态中枢：三种交互模式与番剧偏好共享同一份角色状态与记忆池，事件可回写 |
+
+---
+
+## 二、功能总览
+
+| # | 模块 | 核心能力 | 入口 |
+|---|---|---|---|
+| 1 | **对话交互模式** | 多模态输入（文本/图片）、逐字输出、情绪标注、记忆抽取、按需自主生图 | `/chat/:characterId` |
+| 2 | **叙事推演模式** | 世界状态机（地点/时间/信任/距离）、旁白演绎、事件回写、存档读档 | `/story/:sessionId` |
+| 3 | **视觉小说模式** | 立绘 + 对话框 + 三选项、情绪驱动立绘、场景语义切换、融合 CG | `/galgame/:characterId` |
+| 4 | **长期记忆子系统** | 自动抽取、向量检索（RAG Top3）、语义搜索、增删改、容量治理 | `/memory/:characterId` |
+| 5 | **番剧内容发现子系统** | 推荐流、本季放送日历、中英日混合搜索、**描述式 AI 推荐**、AI 译名、追番清单 | `/catalog` |
+| 6 | **生成式视觉内容** | 对话内自主生图 + 图库在线生图工作台（文生图/图生图、比例、张数、画质、风格、透明背景、提示词润色） | `/gallery` → 在线生图 |
+| 7 | **素材图库** | 分类筛选、标签、上传、收藏、下载、移除、生图归集 | `/gallery` |
+| 8 | **日程提醒服务** | 自然语言建提醒、到点提醒、每日/每周循环顺延 | `/reminders` |
+| 9 | **角色与人格管理** | 创建角色（小传/性格/语气 → 人格提示词）、运行期编辑、好感度阶段派生 | `/create`、聊天页 |
+| 10 | **运行观测面板** | 角色数、对话量、记忆量、平均好感度、消息情绪光谱（趋势为示例数据并标注） | `/dashboard` |
+| 11 | **沉浸式角色大厅** | three.js 星轨宇宙、记忆节点可交互、角色召唤、滚动叙事 | `/` |
+| 12 | **全站音乐播放器** | 环形进度圆钮 + 弹出面板、搜索点播、内置 10 首离线歌单、上一首/下一首、拖动进度 | 所有页面顶部 |
+
+---
+
+## 三、功能详解
+
+### 3.1 三种交互模式，共用一份状态
+
+| 模式 | 交互形式 | 模型职责 | 状态回写 |
+|---|---|---|---|
+| **对话交互** | 文本 + 图片输入，回复逐字呈现 | 记忆检索注入、情绪判断、好感度增减、记忆抽取、必要时输出画图指令 | `messages` / `memories` / `affinity` |
+| **叙事推演** | 自由描述行动，系统演绎后续 | 生成旁白、推进世界状态、产出状态变更摘要 | `storyState` / `memories` / `affinity` |
+| **视觉小说** | 立绘 + 对白 + 三选项（含一个明确的低主动选项） | 定情绪、判断场景转移、生成玩家回应候选 | `messages` / `emotion` / `affinity` / 场景 |
+
+三种模式共用 `store.messages[characterId]`、`store.memories`、`character.affinity` 与 `character.emotion`，这是"跨模式贯通"的实现基础。
+
+### 3.2 长期记忆子系统
+
+- **写入**：每轮对话由模型返回 `memory` 字段，值得留存的事实写入记忆池（`source: chat`）；叙事推演产生的关键事件以 `source: story` 回写；用户也可手动补充。
+- **检索（RAG）**：当前输入与最近 39 条记忆共同向量化（`@cf/baai/bge-m3`，1024 维），余弦相似度 > 0.35 的 Top-3 注入 system prompt。
+- **语义搜索**：独立接口 `POST /api/memory/search`，返回 `{id, score}` 列表，前端按相关度重排并展示「相关度 54%」；向量服务不可用时降级为关键词匹配并明确提示。
+- **治理**：按类型（事实/偏好/事件/羁绊）与重要度（importance）组织；记忆条数与角色卡计数保持一致，支持增删改。
+
+### 3.3 番剧内容发现子系统
+
+面向"我想看点什么样的番"这一真实需求设计，数据基座为 **AniList GraphQL**（单一数据源，服务端统一做字段裁剪与结构归一）。
+
+**能力矩阵**
+
+| 能力 | 实现要点 |
+|---|---|
+| **推荐流** | `POPULARITY_DESC` + `isAdult:false`，取 12 部，输出封面/评分/类型/集数/放送时间 |
+| **本季放送日历** | 抓 `status: RELEASING` 50 部，按 `nextAiringEpisode.airingAt` 归入周一~周日；**"今天"按 UTC+8 计算**，与服务器时区无关，默认停在该天 |
+| **混合语言搜索** | `SEARCH_MATCH` 直搜；中文关键词命中不足 3 部时，**先经译名服务转成原名二次检索**，按 id 去重合并 |
+| **描述式 AI 推荐** | 见下方三段式检索流程 |
+| **标题本地化** | 批量译名接口（单次 ≤ 40 条），前端缓存结果，避免重复请求 |
+| **追番清单** | 收藏进 `watchlist`，含状态（想看/在看/看过）与追番进度，随本地状态持久化 |
+| **外链溯源** | 每部作品提供 AniList / MyAnimeList / Bangumi 站内搜索跳转 |
+
+**描述式 AI 推荐（本模块的重点设计）**
+
+普通"AI 推荐"的通病是模型凭空编片名。本系统采用**先检索、再生成**的两阶段方案：
+
+```
+用户描述（如"想看点轻松治愈、有点恋爱线的番"）
+      ↓
+① 结构化：模型输出 { keyword(英/日), genre(AniList 枚举), reason, reply }
+      ↓
+② 三级检索（数据必须真实）
+     a. keyword 为拉丁字符 → SEARCH_MATCH 精确检索
+     b. 无结果 → 按 genre 取热门
+     c. 仍无结果 → keyword 走 POPULARITY_DESC 兜底
+      ↓
+③ 二次生成：把真实候选（片名/类型/评分）回灌给模型，
+   生成 80~160 字自然推荐语，不允许出现检索结果之外的作品
+      ↓
+前端：先展示一句人话开场，再渲染卡片，每张卡片可一键加入追番清单
+```
+
+这样既保留了自然语言交互的体验，又保证**推荐内容可溯源、不虚构**。
+
+> 现状说明：番剧详情弹窗的剧情简介与评分来源标注仍为示例文案，接入 AniList `description` 的改造已列入待办（见「已知限制」）。
+
+### 3.4 情绪与场景表现层
+
+- **情绪调度**：每轮先随机抽取一个情绪倾向写入提示词（避免表情固化为"温柔微笑"），最终情绪由模型结合上下文裁定；用户明显冷淡时禁止判定为「开心大笑」等高唤醒情绪。10 种情绪 × 5 个姿势 = **50 张透明立绘**（`C001–C050`），按情绪分组轮换姿势。
+- **场景语义定位**：25 个场景各配语义描述并向量化，与对话文本计算余弦：
+  `> 0.60` 立即切换；`> 0.40` 进入候选，需连续 2 轮一致且距上次切换 ≥ 2 轮（滞回防抖）；模型给出的合法场景作为第二候选。
+- **融合 CG 演出**：35% 概率将背景替换为当前场景的融合 CG（`F01-1 … F25-2`），隐藏立绘，持续 2~3 轮后退出。
+
+### 3.5 生成式视觉内容管线
+
+| 入口 | 触发方式 | 产出 |
+|---|---|---|
+| 对话内手动 | 输入框工具栏 ✨ 按钮，或直接说"画张画" | 生成图入对话 + 自动入图库 |
+| 对话内自主 | 模型输出 `[DRAW]画面描述[/DRAW]`，服务端剥离标记并返回 `drawPrompt` | 同上，附带生成状态提示 |
+| **图库在线工作台** | 我的图库 → 右上角「在线生图」 | 完整参数面板，支持批量 |
+
+**工作台参数**
+
+| 参数 | 取值 |
+|---|---|
+| 模式 | 文生图 / 图生图（需上传参考图） |
+| 画面比例 | **AI 自动**（模型裁定）/ 9:16 / 16:9 / 1:1 / 3:4 / 4:3 / 21:9 / **自定义 宽:高（1~32）** |
+| 张数 | 1–4 |
+| 画质 | 精致 / 标准 / 快速 |
+| 风格 | 鲜明 / 自然 |
+| 背景 | 实心 / **透明**（返回真 alpha，落库时转 WebP 保留透明通道） |
+| 提示词 | 手写，或「AI 润色」扩写；可开启「生成前自动润色」 |
+
+**工程处理**：生成结果先压缩（长边 1024，实心 → JPEG，透明 → WebP），再按目标比例校验（偏差 > 6% 时居中裁切并标注），最后同时写入对话流与图库，并提供「下载原图（未压缩 PNG）」。
+
+### 3.6 支撑能力
+
+- **角色与人格管理**：创建流程收集名字/称号/小传/性格标签/语气，拼装为 `personaPrompt` 真正进入系统提示词；运行期可在聊天页随时编辑，下一轮即生效。
+- **关系状态派生**：好感度 → 关系阶段（陌生 0 / 熟悉 25 / 亲近 50 / 心动 75），数值变化跨越阶段时给出状态提示，避免"数值涨了但等级不动"。
+- **日程提醒服务**：自然语言解析（文本 → `{title, dueAt, repeat}`），到点提醒；每日/每周提醒在触发后顺延至下一次，而非一次性销号。
+- **运行观测面板**：角色数、对话条数、记忆条数、平均好感度、消息情绪光谱均由真实状态计算；趋势图与领域事件流为架构示意，界面已标注。
+- **沉浸式大厅**：three.js 星轨宇宙 + 自定义后处理（暗角/颗粒/色散）+ 记忆节点 HUD 投影，支持移动端。
+- **使用声明**：首次进入站点弹出声明弹窗（课程学习用途、内容虚构、数据存于本地、第三方版权归属），确认后写入本地标记，不再重复打扰。
+
+### 3.7 全站音乐播放器
+
+一个常驻在导航栏的迷你播放器，任何页面都能听歌，不打断当前交互。
+
+**交互结构（三级渐进）**
+
+| 层级 | 形态 | 内容 |
+|---|---|---|
+| 一级 | 圆形按钮（52px） | 当前封面做圆形裁切，外圈是 SVG 环形进度（`stroke-dashoffset` 驱动，跨页面同步） |
+| 二级 | 点击后向下弹出的方形面板 | 封面 + 歌名 + 歌手、上一首 / 播放暂停 / 下一首、可拖动进度条与时间、折叠的搜索入口 |
+| 三级 | 默认折叠的「搜索歌曲」 | 展开后是搜索框 + 3 条结果，点结果即刻播放并自动收起 |
+
+动画细节：面板用 `translateY(-10px) scale(.94)` → 归位（260ms 回弹曲线）；折叠区用
+`grid-template-rows: 0fr → 1fr` 做高度过渡（不依赖固定高度，内容变化也不会跳）。
+
+**内置离线歌单**
+
+随站点分发 10 首《塞壬唱片》精选曲目（`public/music/`，mp3 + 封面 + `playlist.json`），
+首屏即加载、首曲 `src` 预挂好，**点播放零延迟**，放完自动续下一首。
+歌单由 `scripts/fetch-playlist.mjs` 生成：检索 → 按热度/可播性排序 → 探测音源 → 落盘。
+
+**搜索点播**
+
+用户搜索走服务端 `/api/music/search`：多组查询合并去重 → 按"歌名相似度 + 歌手/厂牌命中 +
+热度"打分 → **并行探测前 5 首的可播性** → 优先返回能播的，需要会员的标 `VIP` 角标。
+厂牌名（如"塞壬唱片"）做双向包含匹配，避免只按歌名匹配时整页搜不到。
+
+**播放控制**
+
+`<audio>` 是模块级单例（`src/data/music.ts`），页面切换不中断；
+进度条支持按下定位 + 拖动跟随（`setPointerCapture`，手指移出也能拖）；
+音频元数据未就绪时拖动会暂存，`loadedmetadata` 后补上，不会白拖。
+
+**位置自适应**
+
+普通页面嵌在顶栏；首页是沉浸式布局，圆钮默认与导航文字同一条水平线，
+页面滚动超过 64px 后钉到左上角常驻，滚回顶部自动归位。
+播放器被放在首页组件内部，切页面时会跟着整页渐变一起淡出，不会浮在白屏上。
+
+---
+
+## 四、技术栈
+
+| 层 | 选型 |
+|---|---|
+| 前端框架 | Vue 3.5（`<script setup>` + scoped style）、TypeScript 5.7、Vite 6、Pinia 2、vue-router 4 |
+| 可视化 | ECharts 5（按需拆包）、three.js 0.171（星轨场景 + 后处理 + HUD 投影）、lucide-vue-next |
+| 服务端 | **零第三方依赖**的 Node `http` 服务（`server/index.mjs`）：静态托管 + 13 个 API |
+| 语言模型 | DeepSeek `deepseek-flash`（`thinking: enabled` + `reasoning_effort: low`） |
+| 向量模型 | Cloudflare Workers AI `@cf/baai/bge-m3`（1024 维） |
+| 生成式图像 | `image.codesonline.dev/v1`，模型 `gpt-image-2.5-sunburst`（仅 `/images/edits`） |
+| 内容数据 | AniList GraphQL `https://graphql.anilist.co` |
+| 状态管理 | Pinia + 浏览器 localStorage（7 个命名空间） |
+| 测试 | Playwright（playwright-core + 本机 Chrome，headless 回归） |
+
+---
+
+## 五、技术实现路径
+
+### 5.1 架构总览
+
+```
+┌──────────────────────── 浏览器（Vue 3 SPA） ───────────────────────┐
+│ views/     11 个页面                                                  │
+│ stores/    app.ts：characters / messages / memories / assets /        │
+│            reminders / watchlist / storyState                         │
+│ data/      aiApi · affinity · image · galgameAssets · seiraPersona ·  │
+│            music（audio 单例）· assets（缩略图）· mock                │
+│ scene/     MemoryUniverse（three.js）· CinematicPass · HUD 投影        │
+│ 持久化      localStorage（8 个命名空间，统一合并写入）                 │
+└───────────────┬───────────────────────────────────────────────────────┘
+                │ fetch JSON（同源，无跨域）
+┌───────────────▼──────── server/index.mjs（Node http，零依赖）────────┐
+│ 对话 / 叙事 / 视觉小说 · 记忆检索 · 生成式图像 · 日程解析              │
+│ 番剧代理（推荐/日历/搜索/译名/AI 推荐）· 音乐检索/音源代理             │
+│ 静态托管：gzip + immutable 长缓存 + SPA fallback                      │
+└───────────────┬──────────────┬──────────────┬──────────────┬──────────┘
+                ▼              ▼              ▼              ▼
+             DeepSeek      Cloudflare     生成式图像       AniList
+             (语言)        (向量)         (图像)          (番剧)
+```
+
+### 5.2 目录结构
+
+```
+frontend/
+├─ server/index.mjs          全部后端：静态托管 + 16 个 API
+├─ src/
+│  ├─ main.ts                路由表（11 个页面）
+│  ├─ App.vue                应用外壳 + 合并落盘 + 提醒调度
+│  ├─ views/                 11 个页面
+│  ├─ components/            侧边栏 / 顶栏 / 音乐播放器 / 3D 场景 / Toast …
+│  ├─ scene/                 three.js 场景、后处理、HUD 投影
+│  ├─ data/
+│  │  ├─ mock.ts             角色 / 初始消息 / 初始记忆 / 素材 / 追番初始数据
+│  │  ├─ aiApi.ts            4 个 AI 接口封装（history 仅发送 role+content）
+│  │  ├─ affinity.ts         好感度 → 关系阶段
+│  │  ├─ image.ts            出图压缩 / 比例裁切 / 透明通道处理
+│  │  ├─ galgameAssets.ts    情绪→立绘、场景→背景、场景→CG 映射
+│  │  └─ seiraPersona.ts     主角色人格提示词
+│  └─ stores/app.ts          Pinia store（含 7 个持久化命名空间）
+├─ public/assets/            character 50 · cg 50 · scene 25 · images
+├─ dist/                     构建产物
+├─ e2e-*.mjs                 回归脚本（4 个维护中）
+├─ mkzip2.py                 发布包构建
+├─ deploy5.mjs               上传 → 解压 → 修 .env → 重启 → 健康检查
+├─ start.py                  一键启动
+└─ .env                      服务凭据（勿提交、勿外传）
+```
+
+### 5.3 核心链路
+
+**① 对话链路（`POST /api/chat/turn`）**
+
+```
+用户输入
+  ├─ cleanHistory：最近 24 条，仅保留 role / content
+  └─ relevantMemories：query + 最多 39 条记忆 → 向量化
+     → 余弦 > 0.35 → Top3
+        ↓
+system prompt = 人格 + 情绪准则 + 记忆块 + 画图规则（要求仅输出 JSON）
+        ↓
+DeepSeek（4 组参数变体依次重试，任一成功即返回）
+        ↓
+parseModelJson：直接解析 → 剥离 ```json 围栏 → 抠取首尾大括号
+        ↓
+仍失败 → inferFields：正则推断 reply / emotion / scene / affinityDelta
+        ↓
+返回 { reply, emotion, affinityDelta, memory, drawPrompt }
+        ↓
+前端：占位气泡 → 每 24ms 补 2 字 → 合并落盘（600ms 防抖）
+```
+
+**② 视觉小说链路（`POST /api/galgame/turn`）**
+
+```
+抽取情绪倾向 → 写入提示词（"本轮情绪倾向：困倦打哈欠"）
+        ↓
+模型返回 { reply, emotion, scene, affinityDelta, suggestions[3] }
+        ↓
+情绪：模型合法值 → 台词关键词 → 随机兜底（冷淡输入禁止高唤醒情绪）
+场景：对话向量 × 25 条场景描述 → >0.60 立即切换；
+      >0.40 需连续 2 轮 + 冷却 2 轮；模型给值作第二候选
+选项：不足 3 条时调用独立生成器；第 3 条强制为低主动项（正则校验 + 模板兜底）
+        ↓
+前端：立绘按情绪切组、portraitSeed+1 换姿势、35% 概率进入 CG 演出
+```
+
+**③ 番剧推荐链路（`POST /api/catalog/ai-recommend`）**
+
+```
+用户自然语言描述
+        ↓
+① 结构化：模型输出 { keyword, genre, reason, reply }
+        ↓
+② 三级检索（保证内容真实）
+   a. keyword 为拉丁字符 → SEARCH_MATCH 精确检索
+   b. 无结果 → 按 genre 取热门
+   c. 仍无结果 → keyword 走 POPULARITY_DESC 兜底
+        ↓
+③ 二次生成：真实候选（片名/类型/评分）回灌模型 → 80~160 字推荐语
+        ↓
+前端：一句人话 + 卡片列表；卡片可收藏进追番清单，可跳 AniList/MAL/Bangumi
+```
+
+**④ 生成式图像链路（`POST /api/image/generate`）**
+
+```
+参考图优先级：图生图 data URL > 指定路径 > 空白画布（文生图现场生成 PNG）
+        ↓
+上游仅提供 /images/edits（/images/generations 不可用），必须携带一张 image
+        ↓
+返回 base64 PNG（通常 2~4 MB）
+        ↓
+前端压缩：长边 1024；实心 → JPEG(0.86)，透明 → WebP(0.92)
+        ↓
+比例校验：与请求比例偏差 > 6% 时居中裁切，并在结果卡标注
+        ↓
+落库：对话消息 + store.assets（source: AI 生图）+ localStorage
+```
+
+### 5.4 关键设计决策
+
+| 问题 | 处理方式 | 依据 |
+|---|---|---|
+| 模型 JSON 输出不稳定（启用 `json_object` 约半数返回空白） | 提示词约束 JSON + 宽松解析 + 关键词兜底 + 4 组参数变体重试 | 兜底后用户始终能获得可继续的回应，不出现错误弹窗 |
+| 关闭 `thinking` 反而返回空内容 | 统一 `thinking: enabled` + `reasoning_effort: low` | 实测该组合最稳定 |
+| 图像上游仅支持编辑（图生图） | 服务端以 zlib + 手写 PNG chunk 生成空白画布作为底图 | 文生图无需真实参考图即可工作 |
+| 本地存储约 5 MB，而单张生成图为 2–4 MB | 生成图先压缩；落盘设预算（消息 2.4 MB / 图库 1.2 MB），超限丢弃最旧图片并标记 | 规避配额超限导致"后续所有消息静默写入失败" |
+| 逐字动画每 24ms 触发一次状态变更 | `$subscribe` 合并落盘（600ms 防抖）+ 生成期间暂停写入 + `pagehide` 兜底 | 原实现单次回复触发 72 次全量序列化 |
+| 场景切换抖动 | 语义阈值 + 连续 2 轮一致 + 冷却 2 轮 | 单轮余弦相似度噪声过大 |
+| 静态素材总体积 230 MB | gzip 传输 + `immutable` 长缓存；首屏只加载当前场景与立绘 | 未压缩时单个 `vendor-three` 需传输 558 KB |
+| 记忆条目增多后 RAG 反而失效 | query + 39 条记忆 = 40（向量单请求上限） | 原实现上限写死 40，记忆 ≥ 40 条时检索恒为空 |
+| 模型偶发空回复 | 提示词润色与比例裁定各重试 3 次 | 同型号模型的已知缺陷 |
+
+### 5.5 API 清单（16 个）
+
+| 方法 | 路径 | 作用 |
+|---|---|---|
+| GET | `/api/health` | 健康检查（模型标识、凭据是否就绪） |
+| POST | `/api/chat/turn` | 对话交互：回复 / 情绪 / 好感度 / 记忆 / 画图指令 |
+| POST | `/api/galgame/turn` | 视觉小说：回复 / 情绪 / 场景 / 三选项 |
+| POST | `/api/story/turn` | 叙事推演：旁白 / 地点时间 / 信任与距离增量 |
+| POST | `/api/memory/search` | 记忆向量检索（`{query, memories}` → `{results:[{id,score}]}`） |
+| POST | `/api/image/generate` | 生成式图像（比例 / 张数 / 画质 / 风格 / 背景 / 参考图） |
+| POST | `/api/image/refine` | 提示词润色 |
+| POST | `/api/reminder/parse` | 自然语言 → 结构化提醒 |
+| GET | `/api/catalog/recommend` | 番剧推荐流 |
+| GET | `/api/catalog/calendar` | 本季放送日历（按星期分组） |
+| GET | `/api/catalog/search?q=` | 番剧搜索 |
+| POST | `/api/catalog/translate` | 番剧标题本地化（批量） |
+| POST | `/api/catalog/ai-recommend` | 描述式检索 → 候选卡片 + 推荐语 |
+| GET | `/api/music/search?q=` | 歌曲搜索（打分排序 + 可播性探测，返回 3 条） |
+| GET | `/api/music/url?id=` | 解析单曲音源地址 |
+| GET | `/api/music/stream?id=` | 音源代理（透传 Range，支持拖动进度） |
+
+AI 类接口失败时不返回 5xx：统一返回 200 + 降级文案 + `degraded: true`，前端不中断交互。
+
+### 5.6 数据模型与持久化
+
+Pinia store 的 7 个命名空间由 `App.vue` 统一合并写入：
+
+| key | 内容 |
+|---|---|
+| `aniverse.messages.v1` | `Record<characterId, Message[]>`（图片按预算裁剪） |
+| `aniverse.memories.v1` | `Memory[]`（fact / preference / event / relationship + importance） |
+| `aniverse.reminders.v1` | `Reminder[]`（dueAt / repeat / done） |
+| `aniverse.characters.v1` | `Character[]`（好感度、阶段、情绪、人格提示词） |
+| `aniverse.assets.v1` | `Asset[]`（素材 + 生成图，本地图 1.2 MB 预算） |
+| `aniverse.watchlist.v1` | `WatchlistItem[]`（追番清单、状态、进度） |
+| `aniverse.story.slot1.v1` | 叙事推演存档（回合序列 + 世界状态） |
+| `aniverse.music.v1` | 上次播放的歌曲（跨页面续播，重启后仍在） |
+
+---
+
+## 六、本地运行
+
+### 6.1 前置条件
+
+- Node.js **20.6+**（`npm run api` 使用 `node --env-file`；开发机实测 20 / 24 均可）
+- Python 3（仅 `start.py` / `mkzip2.py` 需要）
+- Chrome（仅回归测试需要）
+
+### 6.2 启动方式
+
+```bash
+# 一键：装依赖 → 构建 → 启动
+python start.py
+
+# 手动
+npm install
+npm run build      # vue-tsc 类型检查 + vite build
+npm run start      # 静态页 + API 同端口，默认 http://127.0.0.1:8787
+
+# 开发模式（热更新）
+npm run api        # 终端 1：后端 8787
+npm run dev        # 终端 2：前端 5173（已启用 strictPort，端口占用会直接报错）
+```
+
+Vite 已配置 `/api` 代理至 `127.0.0.1:8787`，前端无需修改 baseURL。
+
+### 6.3 环境变量
+
+```env
+# 语言模型
+DEEPSEEK_API_KEY=
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-flash
+
+# 向量模型
+EMBEDDING_BASE_URL=
+EMBEDDING_MODEL=@cf/baai/bge-m3
+EMBEDDING_API_KEY=
+
+# 生成式图像
+IMAGE_API_BASE_URL=
+IMAGE_API_KEY=
+IMAGE_MODEL=gpt-image-2.5-sunburst
+
+# 服务
+HOST=127.0.0.1
+PORT=8787
+```
+
+缺少 `.env` 时页面仍可访问，但 AI 能力降级为提示文案。`.env` 内含三套凭据，禁止提交或外传。
+
+---
+
+## 七、部署
+
+### 7.1 运行环境
+
+| 项 | 值 |
+|---|---|
+| 访问地址 | `http://106.54.202.104`（建议后续接入域名与 HTTPS） |
+| 运行环境 | Linux，Node **v20.18.1**（安装于 `/opt/node`，不在系统 PATH） |
+| 服务目录 | `/opt/aniverse` |
+| 监听配置 | `HOST=0.0.0.0` `PORT=80`（直接对外，未前置 nginx） |
+| 进程形态 | `setsid nohup /opt/node/bin/node --env-file=.env server/index.mjs > app.log 2>&1` |
+
+> 服务器凭据与 `.env` 密钥见内部交接文档，不写入本仓库。
+
+### 7.2 标准发布流程
+
+```powershell
+cd '<项目>\frontend'
+npm run build        # 1. 构建（含 vue-tsc 类型门禁）
+python mkzip2.py     # 2. 打包 dist + server + .env + README + start.py
+node deploy5.mjs     # 3. 上传 → 解压 → 修正 .env → 重启 → 健康检查
+```
+
+`deploy5.mjs` 执行的实际步骤：
+
+```
+SFTP 上传 zip 至 /opt/aniverse/app.zip
+cd /opt/aniverse && rm -rf dist server && unzip -o -q app.zip
+sed -i '/^HOST=/d;/^PORT=/d' .env && printf 'HOST=0.0.0.0\nPORT=80\n' >> .env
+pkill -f 'server/index.mjs' && sleep 1
+setsid sh -c 'nohup /opt/node/bin/node --env-file=.env server/index.mjs > app.log 2>&1 < /dev/null &'
+curl -s --max-time 5 http://127.0.0.1/api/health
+```
+
+### 7.3 易错点：发布包 `.env` 覆盖线上配置
+
+发布包携带的是本地 `.env`（`HOST=127.0.0.1 PORT=8787`），解压会覆盖服务器上正确的
+`HOST=0.0.0.0 PORT=80`，表现为**外网无法访问、服务仅监听本地**。
+
+`deploy5.mjs` 已内置修正步骤；手工部署必须自行补齐：
+
+```bash
+cd /opt/aniverse
+sed -i '/^HOST=/d;/^PORT=/d' .env
+printf 'HOST=0.0.0.0\nPORT=80\n' >> .env
+```
+
+### 7.4 上线验证
+
+```powershell
+curl.exe -sS http://106.54.202.104/api/health
+# 期望：{"ok":true,"model":"deepseek-flash","configured":true}
+
+# 静态资源：gzip 与长缓存
+curl.exe -sS -o NUL -D - -H "Accept-Encoding: gzip" http://106.54.202.104/assets/<hash>.js
+```
+
+### 7.5 运维命令
+
+```bash
+pgrep -af server/index.mjs                  # 查看进程
+tail -f /opt/aniverse/app.log               # 查看日志
+pkill -f 'server/index.mjs'                 # 停止服务
+cd /opt/aniverse && setsid sh -c 'nohup /opt/node/bin/node --env-file=.env server/index.mjs > app.log 2>&1 < /dev/null &'
+```
+
+### 7.6 部署注意事项
+
+- 发布包约 **238 MB**（素材占主要体积），上传需数分钟属正常现象。
+- **不要用 PowerShell `Compress-Archive` 打包**：会写入反斜杠路径，Linux 解压失败，必须使用 `mkzip2.py`。
+- 后续若前置 nginx：反向代理 `80 → 127.0.0.1:8787`，`.env` 改回 `HOST=127.0.0.1`，并对 `/api/image/*` 增加限流。
+- 当前为 `nohup` 托管，服务器重启不会自动恢复，建议后续接入 systemd / supervisor。
+
+---
+
+## 八、测试
+
+回归脚本（`playwright-core` + 本机 Chrome headless，4 个维护中）：
+
+```powershell
+cd '<项目>\frontend'
+
+node e2e-regression.mjs   # 叙事回合 / 记忆语义检索 / 对话落盘 / 观测面板 / 顶栏通知（2 次模型调用）
+node e2e-features.mjs     # 关系阶段派生 / 人格编辑 / 对话生图归集（1 次图像生成）
+node e2e-studio.mjs       # 生图工作台：润色 / 自定义比例 / 透明通道 / 下载 / 移除（1 次图像生成）
+node e2e-reminder.mjs     # 循环提醒顺延 / 角色创建人格注入（无模型调用）
+
+# 针对线上环境
+$env:ANIVERSE_URL='http://106.54.202.104'; node e2e-studio.mjs
+```
+
+当前自动化覆盖：3 种交互模式的核心链路、记忆检索、图像生成与归集、提醒调度、人格持久化，以及移动端头部可用性。
+
+**交付前固定流程**：`npx vue-tsc --noEmit` → `npm run build` → 部署 → 线上回归 → 截图核对。
+
+---
+
+## 九、已知限制
+
+1. **状态仅存于浏览器本地**：换设备或清理缓存即归零。若要演进为服务端记忆，需迁移 store（服务器 Node 20 无内置 `node:sqlite`，可选 `better-sqlite3` 或升级至 Node 22+）。
+2. **素材已转 WebP**：245 MB PNG → 43 MB（大图 + 缩略），原始 PNG 保留在 `assets-src/`（不进部署包），可用 `scripts/build-images.py` 重新生成。
+3. **图像上游仅支持图生图**：文生图以空白画布兜底；上游未开放 2K/4K 放大接口，故未提供。
+4. **番剧详情弹窗的简介与评分来源为示例文案**，尚未接入 AniList 真实 `description` 字段。
+5. **番剧接口无服务端缓存**：每次进入番剧页会触发一次推荐与一次日历查询，弱网下首屏偏慢。
+6. **`/api/*` 未做鉴权**：公网可直接调用并消耗凭据额度，建议增加 token 与限流。
+7. **观测面板的趋势图与事件流为示例数据**（界面已标注），其余指标为真实统计。
+8. **音乐依赖第三方非官方接口**：搜索与音源解析走网易云公开接口，**无 SLA、随时可能失效**；需要会员或已下架的曲目无法播放（列表中标 `VIP`）。内置 10 首随站点分发，不受该接口影响。
+
+---
+
+## 十、项目约定
+
+1. **不得删除 `public/assets/` 下的素材**——立绘、CG、场景为长期生成成果，删除需重新生成。
+2. `.env` 与服务器凭据不入库、不进对话。
+3. UI 变更前先截图留档，变更后逐项比对。
+4. 后端改动先执行 `node --check server/index.mjs`，再重启服务。
+5. 视觉与文风约定：不混用美术风格、场景统一 16:9、角色立绘保持透明底、回复避免模板化的正能量表达。
+
+---
+
+*AniVerse —— 记录每一次相遇，也让每一次相遇都算数。*
+
+---
+
+© 2026 申锦豪 · 《智能系统开发技术基础与应用》课程作业 · 仅供学习参考，非商业用途

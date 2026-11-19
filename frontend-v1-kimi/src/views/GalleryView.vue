@@ -1,0 +1,58 @@
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import { Check, ChevronRight, Download, Heart, ImagePlus, Images, Maximize2, Search, Sparkles, Tags, UploadCloud, X } from 'lucide-vue-next'
+import { useAppStore } from '../stores/app'
+import type { Asset } from '../data/mock'
+const store = useAppStore()
+const filter = ref('全部资产')
+const query = ref('')
+const selectedTag = ref('')
+const dragging = ref(false)
+const fileInput = ref<HTMLInputElement>()
+const selected = ref<Asset | null>(null)
+const filters = ['全部资产', '角色立绘', '场景', '我的收藏']
+const allTags = ['星空', '海边', '温室', '温柔', '开心', '黄昏']
+const filtered = computed(() => store.assets.filter(a => {
+  const filterMatch = filter.value === '全部资产' || (filter.value === '我的收藏' ? a.favorite : a.tags.includes(filter.value))
+  const queryMatch = !query.value || `${a.title}${a.tags.join('')}`.toLowerCase().includes(query.value.toLowerCase())
+  const tagMatch = !selectedTag.value || a.tags.includes(selectedTag.value)
+  return filterMatch && queryMatch && tagMatch
+}))
+const upload = (files: FileList | null) => {
+  if (!files?.length) return
+  Array.from(files).slice(0, 6).forEach(file => {
+    if (!file.type.startsWith('image/')) return
+    const reader = new FileReader()
+    reader.onload = () => store.addAsset({ title: file.name.replace(/\.[^.]+$/, ''), image: reader.result as string, tags: ['上传', '未分类'] })
+    reader.readAsDataURL(file)
+  })
+  dragging.value = false
+}
+const findSimilar = (asset: Asset) => { selected.value = null; query.value = asset.tags[0]; store.notify('已找到相似资产', `按「${asset.tags[0]}」与画面语义进行匹配`, 'info') }
+const download = (asset: Asset) => { const a = document.createElement('a'); a.href = asset.image; a.download = asset.title; a.click(); store.notify('已开始下载', asset.title) }
+</script>
+<template>
+  <div class="gallery-page">
+    <div class="page-heading"><div><div class="eyebrow">MULTIMODAL ASSETS</div><h1>我的图库 <span class="asset-count">{{ store.assets.length }}</span></h1><p>收藏每一个画面，让角色与故事拥有更丰富的表达。</p></div><button class="btn btn-primary" @click="fileInput?.click()"><UploadCloud :size="16" />上传图片</button></div>
+    <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="upload(($event.target as HTMLInputElement).files)" />
+    <div class="gallery-top">
+      <div class="gallery-search input-wrap"><Search :size="17" /><input v-model="query" class="input" placeholder="搜索画面、标签或一句话描述…" /><span><Sparkles :size="12" />语义检索</span></div>
+      <div class="gallery-stat"><Images :size="16" /><span>角色立绘 <strong>5</strong></span><i /><span>剧情场景 <strong>3</strong></span><i /><span>收藏 <strong>{{ store.assets.filter(a => a.favorite).length }}</strong></span></div>
+    </div>
+    <div class="upload-zone" :class="{ dragging }" @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="upload($event.dataTransfer?.files ?? null)" @click="fileInput?.click()"><span><ImagePlus :size="21" /></span><div><strong>拖拽图片到这里，或点击上传</strong><p>支持 JPG、PNG、WebP · 上传后自动加入本地资产库</p></div><button class="btn btn-secondary">选择文件</button></div>
+    <div class="gallery-toolbar"><div class="tabs"><button v-for="f in filters" :key="f" class="tab" :class="{ active: filter === f }" @click="filter = f">{{ f }}</button></div><div class="tag-filter"><Tags :size="14" /><button v-for="tag in allTags" :key="tag" :class="{ active: selectedTag === tag }" @click="selectedTag = selectedTag === tag ? '' : tag">{{ tag }}</button></div></div>
+    <div v-if="filtered.length" class="asset-grid">
+      <article v-for="(asset, index) in filtered" :key="asset.id" class="asset-card card" :class="{ landscape: asset.image.includes('story-') || asset.image.includes('.svg') }">
+        <div class="asset-image" @click="selected = asset"><img :src="asset.image" :alt="asset.title" :style="{ objectPosition: asset.image.includes('portrait') && index % 2 ? 'center 15%' : 'center 25%' }" /><div class="asset-overlay"><span><Maximize2 :size="17" /></span></div><button class="asset-fav" :class="{ active: asset.favorite }" @click.stop="store.toggleAssetFavorite(asset.id)"><Heart :size="15" :fill="asset.favorite ? 'currentColor' : 'none'" /></button><span class="asset-source">{{ asset.source }}</span></div>
+        <div class="asset-info"><h3>{{ asset.title }}</h3><div class="asset-tags"><span v-for="tag in asset.tags.slice(0, 3)" :key="tag"># {{ tag }}</span></div><div class="asset-foot"><span>{{ asset.size }}</span><button @click="selected = asset">详情<ChevronRight :size="12" /></button></div></div>
+      </article>
+    </div>
+    <div v-else class="gallery-empty card"><Images :size="36" /><h3>没有找到相关画面</h3><p>试试其他标签，或上传一张新图片。</p><button class="btn btn-soft" @click="query = ''; selectedTag = ''; filter = '全部资产'">查看全部资产</button></div>
+
+    <Teleport to="body"><Transition name="fade"><div v-if="selected" class="modal-backdrop" @click.self="selected = null"><div class="asset-modal"><button class="asset-close" @click="selected = null"><X :size="20" /></button><div class="asset-preview"><img :src="selected.image" :alt="selected.title" /></div><div class="asset-detail"><span class="pill pill-purple">{{ selected.source }}</span><h2>{{ selected.title }}</h2><p>这份资产已与角色宇宙建立关联，可用于角色形象、表情绑定与剧情场景。</p><div class="detail-tags"><span v-for="tag in selected.tags" :key="tag"><Check :size="11" />{{ tag }}</span></div><div class="detail-list"><div><span>画面尺寸</span><strong>{{ selected.size }}</strong></div><div><span>资产编号</span><strong>AST-{{ String(selected.id).padStart(4, '0') }}</strong></div><div><span>索引状态</span><strong class="indexed"><Check :size="11" />本地索引完成</strong></div></div><div class="asset-detail-actions"><button class="btn btn-secondary" @click="download(selected)"><Download :size="15" />下载</button><button class="btn btn-primary" @click="findSimilar(selected)"><Sparkles :size="15" />寻找相似画面</button></div></div></div></div></Transition></Teleport>
+  </div>
+</template>
+<style scoped>
+.asset-count{display:inline-grid;place-items:center;width:25px;height:25px;margin-left:5px;border-radius:8px;background:#eae6f7;color:#8774d1;font-size:11px;vertical-align:3px}.gallery-top{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:15px}.gallery-search{width:min(480px,50%)}.gallery-search .input{padding-right:95px;background:white}.gallery-search>span{position:absolute;right:12px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:4px;color:#9a87d7;font-size:8px}.gallery-stat{display:flex;align-items:center;gap:12px;color:#9a94a3;font-size:9px}.gallery-stat>svg{color:#9380d4}.gallery-stat span{white-space:nowrap}.gallery-stat strong{color:#6f667a}.gallery-stat i{width:1px;height:12px;background:#ddd8e4}.upload-zone{display:flex;align-items:center;gap:13px;padding:15px 18px;border:1px dashed #d8d1e8;border-radius:16px;background:rgba(255,255,255,.45);cursor:pointer;transition:all .2s}.upload-zone:hover,.upload-zone.dragging{border-color:#9c87df;background:#f2eefc}.upload-zone>span{width:37px;height:37px;display:grid;place-items:center;border-radius:11px;background:#ece8f8;color:#8d79d5}.upload-zone strong{display:block;color:#7c7287;font-size:10px}.upload-zone p{margin-top:4px;color:#b0a8b6;font-size:8px}.upload-zone .btn{margin-left:auto;min-height:34px;font-size:9px}.gallery-toolbar{display:flex;align-items:center;justify-content:space-between;gap:15px;margin:22px 0 17px}.tag-filter{display:flex;align-items:center;gap:6px;color:#aaa3b0}.tag-filter button{padding:4px 7px;border:0;border-radius:6px;background:transparent;color:#aaa3b0;font-size:8px}.tag-filter button.active{background:#ebe6f8;color:#806ccd}.asset-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:17px}.asset-card{overflow:hidden;transition:all .25s}.asset-card:hover{transform:translateY(-4px);box-shadow:0 18px 40px rgba(45,35,75,.1)}.asset-image{position:relative;height:265px;overflow:hidden;cursor:zoom-in;background:#eee}.asset-card.landscape .asset-image{height:190px}.asset-image>img{width:100%;height:100%;object-fit:cover;transition:transform .5s}.asset-card:hover .asset-image>img{transform:scale(1.04)}.asset-overlay{position:absolute;inset:0;display:grid;place-items:center;background:rgba(40,30,60,.25);opacity:0;transition:opacity .2s}.asset-overlay span{width:42px;height:42px;display:grid;place-items:center;border-radius:50%;background:rgba(255,255,255,.8);color:#70627f;transform:scale(.8);transition:transform .2s}.asset-card:hover .asset-overlay{opacity:1}.asset-card:hover .asset-overlay span{transform:scale(1)}.asset-fav{position:absolute;right:11px;top:11px;width:30px;height:30px;display:grid;place-items:center;border:0;border-radius:50%;background:rgba(255,255,255,.82);color:#766c80;backdrop-filter:blur(8px)}.asset-fav.active{color:#de7e94}.asset-source{position:absolute;left:11px;bottom:10px;padding:4px 7px;border-radius:6px;background:rgba(35,28,50,.42);backdrop-filter:blur(6px);color:white;font-size:7px}.asset-info{padding:14px 15px}.asset-info h3{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.asset-tags{display:flex;gap:6px;margin-top:8px;color:#9d92aa;font-size:8px}.asset-foot{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid #f0edf3;color:#b2abb7;font-size:7px}.asset-foot button{display:flex;align-items:center;border:0;background:none;color:#9a87d0;font-size:8px}.gallery-empty{padding:70px;text-align:center;color:#a99dc0}.gallery-empty svg{margin:0 auto 14px}.gallery-empty h3{color:#675e72;font-size:15px}.gallery-empty p{margin:7px 0 16px;color:#aaa2b0;font-size:10px}.asset-modal{position:relative;width:min(850px,100%);max-height:90vh;display:grid;grid-template-columns:1.3fr 1fr;overflow:hidden;border-radius:24px;background:white;box-shadow:0 30px 80px rgba(30,25,50,.25)}.asset-close{position:absolute;right:13px;top:13px;z-index:2;width:34px;height:34px;display:grid;place-items:center;border:0;border-radius:50%;background:rgba(255,255,255,.85);color:#756c7f}.asset-preview{min-height:450px;background:#f0edf4}.asset-preview img{width:100%;height:100%;max-height:75vh;object-fit:cover}.asset-detail{padding:38px 28px 28px}.asset-detail h2{margin-top:14px;font-size:21px}.asset-detail>p{margin-top:12px;color:#958d9d;font-size:10px;line-height:1.8}.detail-tags{display:flex;flex-wrap:wrap;gap:7px;margin-top:18px}.detail-tags span{display:flex;align-items:center;gap:4px;padding:5px 8px;border-radius:7px;background:#f0ecf9;color:#8875c9;font-size:8px}.detail-list{margin-top:22px}.detail-list>div{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid #efecf2;font-size:9px}.detail-list span{color:#aaa2b0}.detail-list strong{color:#746b7e}.detail-list .indexed{display:flex;align-items:center;gap:4px;color:#67a48e}.asset-detail-actions{display:flex;gap:9px;margin-top:25px}.asset-detail-actions .btn{flex:1;padding:0 10px;font-size:10px}
+@media(max-width:1300px){.asset-grid{grid-template-columns:repeat(3,1fr)}}@media(max-width:1000px){.gallery-toolbar{align-items:flex-start;flex-direction:column}.gallery-stat{display:none}.gallery-search{width:100%}.asset-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:600px){.upload-zone .btn{display:none}.upload-zone{padding:13px}.asset-grid{grid-template-columns:1fr}.asset-image,.asset-card.landscape .asset-image{height:330px}.gallery-toolbar .tabs{width:100%}.gallery-toolbar .tab{flex:1;padding:8px 6px;white-space:nowrap}.tag-filter{max-width:100%;overflow-x:auto}.asset-modal{grid-template-columns:1fr;overflow-y:auto}.asset-preview{min-height:280px;height:38vh}.asset-detail{padding:24px}.asset-detail h2{font-size:18px}}
+</style>

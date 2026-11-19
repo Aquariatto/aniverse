@@ -1,0 +1,115 @@
+{
+  "title": "塞壬唱片 · 精选",
+  "songs": [
+    {
+      "id": 3456704419,
+      "name": "火与尘",
+      "artists": "塞壬唱片-MSR/椎名豪",
+      "album": "时间啊，向前！OST",
+      "durationMs": 291724,
+      "cover": "/music/cover-3456704419.jpg",
+      "src": "/music/msr-3456704419.mp3",
+      "fee": 8,
+      "playable": true
+    },
+    {
+      "id": 2070352215,
+      "name": "Misty Memory (Day Version)",
+      "artists": "塞壬唱片-MSR/Erik Castro/Elvin Shen/David Lin/左乙",
+      "album": "火山旅梦OST",
+      "durationMs": 283428,
+      "cover": "/music/cover-2070352215.jpg",
+      "src": "/music/msr-2070352215.mp3",
+      "fee": 8,
+      "playable": true
+    },
+    {
+      "id": 2088472839,
+      "name": "Settle Into Ash",
+      "artists": "塞壬唱片-MSR/Adam Gubman/Telle Smith/Sage X Price",
+      "album": "Settle Into Ash",
+      "durationMs": 283349,
+      "cover": "/music/cover-2088472839.jpg",
+      "src": "/music/msr-2088472839.mp3",
+      "fee": 8,
+      "playable": true
+    },
+    {
+      "id": 3454742114,
+      "name": "A Necessary Message",
+      "artists": "塞壬唱片-MSR/Chapters/Ben Hicks/Sofia Silvestri",
+      "album": "A Necessary Message",
+      "durationMs": 275595,
+      "cover": "/music/cover-3454742114.jpg",
+      "src": "/music/msr-3454742114.mp3",
+      "fee": 8,
+      "playable": true
+    },
+    {
+      "id": 2004898956,
+      "name": "浮生听风",
+      "artists": "塞壬唱片-MSR/THE EITHER/杭州爱乐乐团/宗立Zongli",
+      "album": "音律联觉-灯下定影原声EP",
+      "durationMs": 269000,
+      "cover": "/music/cover-2004898956.jpg",
+      "src": "/music/msr-2004898956.mp3",
+      "fee": 8,
+      "playable": true
+    },
+    {
+      "id": 3455607602,
+      "name": "Тысячу лет спустя",
+      "artists": "塞壬唱片-MSR/Julia Avrutskaia/Sterling Maffe",
+      "album": "Тысячу лет спустя",
+      "durationMs": 256817,
+      "cover": "/music/cover-3455607602.jpg",
+      "src": "/music/msr-3455607602.mp3",
+      "fee": 8,
+      "playable": true
+    },
+    {
+      "id": 1890402858,
+      "name": "Radiant",
+      "artists": "塞壬唱片-MSR/Forts",
+      "album": "Radiant",
+      "durationMs": 252272,
+      "cover": "/music/cover-1890402858.jpg",
+      "src": "/music/msr-1890402858.mp3",
+      "fee": 8,
+      "playable": true
+    },
+    {
+      "id": 1946818881,
+      "name": "Tower Fierce",
+      "artists": "塞壬唱片-MSR/椎名豪",
+      "album": "明日方舟OST3",
+      "durationMs": 249784,
+      "cover": "/music/cover-1946818881.jpg",
+      "src": "/music/msr-1946818881.mp3",
+      "fee": 8,
+      "playable": true
+    },
+    {
+      "id": 1460626792,
+      "name": "Everything's Alright",
+      "artists": "塞壬唱片-MSR/DJ OKAWARI/澤田かおり",
+      "album": "Everything's Alright",
+      "durationMs": 249500,
+      "cover": "/music/cover-1460626792.jpg",
+      "src": "/music/msr-1460626792.mp3",
+      "fee": 8,
+      "playable": true
+    },
+    {
+      "id": 1403774122,
+      "name": "Speed of Light",
+      "artists": "塞壬唱片-MSR/DJ OKAWARI/二宮愛",
+      "album": "Speed of Light",
+      "durationMs": 245817,
+      "cover": "/music/cover-1403774122.jpg",
+      "src": "/music/msr-1403774122.mp3",
+      "fee": 8,
+      "playable": true
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+﻿# ---------- 依赖与构建产物 ----------
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# ---------- 密钥与本地配置（绝对不能提交）----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---------- 打包产物 / 发布副本 ----------
+*.zip
+aniverse-release/
+release/
+
+# ---------- 图片母版（245MB 原图，用 scripts/build-images.py 可重建）----------
+frontend/assets-src/
+
+# ---------- 运行时数据 ----------
+data/
+*.jsonl
+*.log
+logs/
+
+# ---------- 编辑器 / 系统 ----------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- 临时文件 ----------
+_shot/
+*.tmp
+*.bak
+*.bak-*
+
+# 内置歌单的音频文件（版权 + 体积），用 scripts/fetch-playlist.mjs 可重新生成
+frontend/public/music/*.mp3
