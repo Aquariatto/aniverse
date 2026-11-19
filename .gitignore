@@ -40,3 +40,18 @@ _shot/
 
 # 内置歌单的音频文件（版权 + 体积），用 scripts/fetch-playlist.mjs 可重新生成
 frontend/public/music/*.mp3
+
+# ---------- 本地开发/部署脚本（含服务器凭据，绝不入库）----------
+frontend/deploy*.mjs
+frontend/_*.mjs
+frontend/e2e-*.mjs
+frontend/fix.mjs
+frontend/go*.mjs
+frontend/envfix.mjs
+frontend/install-node.mjs
+frontend/start-remote.mjs
+frontend/check*.mjs
+frontend/probe*.mjs
+frontend/shoot*.mjs
+frontend/audit.mjs
+frontend/client.mjs
